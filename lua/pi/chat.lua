@@ -432,6 +432,9 @@ local function render_message(msg)
     return render_tool_result(msg)
   elseif role == "bashExecution" then
     return render_bash_execution(msg)
+  elseif role == "system_info" then
+    local text = type(msg.content) == "string" and msg.content or ""
+    return { text, "" }
   else
     return { string.format("*[%s message]*", role or "unknown"), "" }
   end

@@ -21,12 +21,7 @@ function M.setup(opts)
     if config.opts.rpc and config.opts.rpc.auto_start ~= false then
       vim.schedule(function()
         local rpc = require("pi.rpc")
-        rpc.start({
-          on_ready = function()
-            -- Load existing conversation into chat buffer
-            M._load_history()
-          end,
-        })
+        rpc.start()
       end)
     end
   elseif mode == "terminal" then
@@ -38,20 +33,46 @@ function M.setup(opts)
   end
 end
 
---- Load conversation history from an existing session into the chat buffer.
-function M._load_history()
+--- Whether history has been loaded for this session.
+M._history_loaded = false
+
+--- Load conversation history into the chat buffer.
+--- Only renders the last few messages to avoid rendering huge sessions.
+---@param opts? { max_messages?: integer }
+function M._load_history(opts)
+  opts = opts or {}
+  local max = opts.max_messages or 20
+
+  if M._history_loaded then
+    return
+  end
+
   local rpc = require("pi.rpc")
   if not rpc.is_ready() then
     return
   end
+
+  M._history_loaded = true
 
   rpc.request({ type = "get_messages" }, function(response)
     if response.success and response.data and response.data.messages then
       local messages = response.data.messages
       if #messages > 0 then
         local chat = require("pi.chat")
-        chat.open()
-        chat.render_messages(messages)
+        -- Only render the tail to keep startup fast
+        local start_idx = math.max(1, #messages - max + 1)
+        local tail = {}
+        if start_idx > 1 then
+          -- Add a summary header
+          tail[#tail + 1] = {
+            role = "system_info",
+            content = string.format("*(%d earlier messages not shown)*", start_idx - 1),
+          }
+        end
+        for i = start_idx, #messages do
+          tail[#tail + 1] = messages[i]
+        end
+        chat.render_messages(tail)
       end
     end
   end)
@@ -64,7 +85,12 @@ function M.toggle()
     require("pi.terminal").toggle()
   else
     local chat = require("pi.chat")
+    local was_open = chat.is_open()
     chat.toggle()
+    -- Lazy-load history on first open
+    if not was_open and chat.is_open() and not M._history_loaded then
+      M._load_history()
+    end
   end
 end
 
