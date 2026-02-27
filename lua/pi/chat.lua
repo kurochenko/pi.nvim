@@ -72,7 +72,10 @@ local function ensure_buffer()
   vim.bo[M.buf].bufhidden = "hide"
   vim.bo[M.buf].swapfile = false
   vim.bo[M.buf].modifiable = false
-  vim.bo[M.buf].filetype = "markdown"
+  -- Use a custom filetype to avoid render-markdown.nvim and similar plugins
+  -- from hooking into our scratch buffer (causes OOM/crash).
+  -- Treesitter markdown highlighting can be attached manually if desired.
+  vim.bo[M.buf].filetype = "pi_chat"
 
   vim.api.nvim_buf_set_name(M.buf, "pi://chat")
 
