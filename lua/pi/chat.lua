@@ -72,10 +72,38 @@ local function ensure_buffer()
   vim.bo[M.buf].bufhidden = "hide"
   vim.bo[M.buf].swapfile = false
   vim.bo[M.buf].modifiable = false
-  -- Use a custom filetype to avoid render-markdown.nvim and similar plugins
-  -- from hooking into our scratch buffer (causes OOM/crash).
-  -- Treesitter markdown highlighting can be attached manually if desired.
-  vim.bo[M.buf].filetype = "pi_chat"
+
+  -- Mark buffer so render-markdown.nvim ignores it (prevents OOM crash).
+  -- Must be set BEFORE filetype to catch the FileType autocmd.
+  vim.b[M.buf].pi_chat = true
+
+  -- Patch render-markdown's ignore function to skip our buffer.
+  -- Uses a buffer-local FileType autocmd that fires before lazy.nvim's
+  -- global one, ensuring the patch is in place when should_attach runs.
+  local guard_group = vim.api.nvim_create_augroup("PiChatRenderGuard", { clear = true })
+  vim.api.nvim_create_autocmd("FileType", {
+    group = guard_group,
+    buffer = M.buf,
+    once = true,
+    callback = function()
+      local ok, rm_state = pcall(require, "render-markdown.state")
+      if ok and rm_state and rm_state.ignore then
+        local orig_ignore = rm_state.ignore
+        -- Only patch once (check if already patched)
+        if not rm_state._pi_patched then
+          rm_state._pi_patched = true
+          rm_state.ignore = function(buf)
+            if vim.b[buf] and vim.b[buf].pi_chat then
+              return true
+            end
+            return orig_ignore(buf)
+          end
+        end
+      end
+    end,
+  })
+
+  vim.bo[M.buf].filetype = "markdown"
 
   vim.api.nvim_buf_set_name(M.buf, "pi://chat")
 
