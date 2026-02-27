@@ -375,6 +375,79 @@ function M.cycle_thinking()
   end)
 end
 
+--- Start a new session.
+function M.new_session()
+  local rpc = require("pi.rpc")
+  if not rpc.is_ready() then
+    vim.notify("Pi: RPC not connected", vim.log.levels.WARN)
+    return
+  end
+
+  rpc.request({ type = "new_session" }, function(response)
+    if response.success then
+      if response.data and response.data.cancelled then
+        vim.notify("Pi: new session cancelled by extension", vim.log.levels.INFO)
+      else
+        vim.notify("Pi: new session started")
+        local chat = require("pi.chat")
+        chat.clear()
+        require("pi.events").refresh_state()
+      end
+    else
+      vim.notify("Pi: failed to start new session: " .. (response.error or "unknown"), vim.log.levels.ERROR)
+    end
+  end)
+end
+
+--- Get session stats.
+---@param callback? fun(stats: table)
+function M.session_stats(callback)
+  local rpc = require("pi.rpc")
+  if not rpc.is_ready() then
+    vim.notify("Pi: RPC not connected", vim.log.levels.WARN)
+    return
+  end
+
+  rpc.request({ type = "get_session_stats" }, function(response)
+    if response.success and response.data then
+      local stats = response.data
+      if callback then
+        callback(stats)
+      else
+        local cost = stats.cost or 0
+        local tokens = stats.tokens or {}
+        vim.notify(string.format(
+          "Pi session: %d msgs, %d tool calls | %dk tokens (in: %dk, out: %dk, cache: %dk) | cost: $%.4f",
+          stats.totalMessages or 0,
+          stats.toolCalls or 0,
+          (tokens.total or 0) / 1000,
+          (tokens.input or 0) / 1000,
+          (tokens.output or 0) / 1000,
+          (tokens.cacheRead or 0) / 1000,
+          cost
+        ))
+      end
+    end
+  end)
+end
+
+--- Export session to HTML.
+function M.export_html()
+  local rpc = require("pi.rpc")
+  if not rpc.is_ready() then
+    vim.notify("Pi: RPC not connected", vim.log.levels.WARN)
+    return
+  end
+
+  rpc.request({ type = "export_html" }, function(response)
+    if response.success and response.data and response.data.path then
+      vim.notify("Pi: exported to " .. response.data.path)
+    else
+      vim.notify("Pi: export failed: " .. (response.error or "unknown"), vim.log.levels.ERROR)
+    end
+  end)
+end
+
 --- Abort pi's current operation.
 function M.abort()
   local config = require("pi.config")
