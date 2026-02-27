@@ -10,11 +10,13 @@ function M.setup(opts)
   local mode = config.opts.mode or "rpc"
 
   if mode == "rpc" then
-    -- Connect event system and streaming handler
+    -- Connect event system, streaming handler, and extension UI
     local events = require("pi.events")
     local stream = require("pi.stream")
+    local ext_ui = require("pi.extension_ui")
     events.connect()
     stream.connect()
+    ext_ui.connect()
 
     if config.opts.rpc and config.opts.rpc.auto_start ~= false then
       vim.schedule(function()
