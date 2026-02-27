@@ -241,35 +241,30 @@ function M.focus()
 end
 
 --- Perform the actual paste into the terminal.
---- When submit=true: Ctrl-C clear + bracketed paste + Enter (full submit).
---- When submit=false: copies text to system clipboard and opens the panel
----   so the user can paste manually and add their own instructions.
 ---@param text string
----@param submit boolean Whether to auto-submit or just stage to clipboard
+---@param submit boolean Whether to press Enter after pasting
 local function do_send(text, submit)
   if M.chan == nil then
     return
   end
 
-  if submit then
-    -- Full submit flow: clear editor, bracketed paste, Enter
-    if config.opts.terminal.clear_before_send then
-      vim.fn.chansend(M.chan, "\x03")
-    end
-
-    vim.defer_fn(function()
-      if M.chan == nil then
-        return
-      end
-      -- Bracketed paste: \x1b[200~ ... \x1b[201~
-      vim.fn.chansend(M.chan, "\x1b[200~" .. text .. "\x1b[201~")
-      vim.fn.chansend(M.chan, "\r")
-    end, config.opts.terminal.send_delay)
-  else
-    -- No-submit flow: put text in clipboard, user pastes when ready
-    vim.fn.setreg("+", text)
-    vim.notify("Pi: context copied — paste in pi with Cmd+V / Ctrl+Shift+V", vim.log.levels.INFO)
+  -- Optionally clear pi's editor with Ctrl-C before pasting
+  if config.opts.terminal.clear_before_send then
+    vim.fn.chansend(M.chan, "\x03")
   end
+
+  -- After a brief delay, paste the prompt
+  vim.defer_fn(function()
+    if M.chan == nil then
+      return
+    end
+    -- Bracketed paste: \x1b[200~ ... \x1b[201~
+    vim.fn.chansend(M.chan, "\x1b[200~" .. text .. "\x1b[201~")
+    -- Only submit with Enter if requested
+    if submit then
+      vim.fn.chansend(M.chan, "\r")
+    end
+  end, config.opts.terminal.send_delay)
 end
 
 --- Poll for terminal readiness, then send. Gives up after max_retries.
