@@ -162,6 +162,31 @@ function Context:resume()
   end
 end
 
+--- Get a compact file reference (path + line range) for the context.
+--- Returns a single-line string like "lua/pi/init.lua:12-25 " suitable
+--- for typing into pi's editor without bracketed paste.
+---@return string|nil
+function Context:ref()
+  if not is_buf_valid(self.buf) then
+    return nil
+  end
+
+  local path = buf_path(self.buf)
+
+  if self.range then
+    local total_lines = vim.api.nvim_buf_line_count(self.buf)
+    local start_line = math.max(self.range.from[1], 1)
+    local end_line = math.min(self.range.to[1], total_lines)
+    if start_line == end_line then
+      return string.format("%s:%d ", path, start_line)
+    else
+      return string.format("%s:%d-%d ", path, start_line, end_line)
+    end
+  else
+    return string.format("%s:%d ", path, self.cursor[1])
+  end
+end
+
 -- ==========================================================================
 -- Context providers
 -- ==========================================================================

@@ -173,6 +173,22 @@ function M.abort()
   require("pi.terminal").send_abort()
 end
 
+--- Send a compact file reference (path:lines) to pi's editor without submitting.
+--- The reference is typed as raw keystrokes so the user can add instructions
+--- and submit manually.
+function M.send_context()
+  local context_mod = require("pi.context")
+  local terminal = require("pi.terminal")
+
+  local ctx = context_mod.Context.new()
+  local ref = ctx:ref()
+  ctx:clear()
+
+  if ref then
+    terminal.send(ref, { submit = false })
+  end
+end
+
 --- Create an operator function for dot-repeat support.
 --- Usage: vim.keymap.set("n", "gp", function() return require("pi").operator("@this: ") end, { expr = true })
 ---@param prefix string Text to prepend to the prompt
@@ -237,10 +253,10 @@ function M._setup_keymaps()
 
   if km.prompt_this then
     vim.keymap.set("n", km.prompt_this, function()
-      M.prompt("@this", { submit = false })
+      M.send_context()
     end, { silent = true, desc = "Pi: Send code context" })
     vim.keymap.set("v", km.prompt_this, function()
-      M.prompt("@this", { submit = false })
+      M.send_context()
     end, { silent = true, desc = "Pi: Send selection" })
   end
 

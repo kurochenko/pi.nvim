@@ -240,29 +240,35 @@ function M.focus()
   end
 end
 
---- Perform the actual paste into the terminal.
+--- Perform the actual send into the terminal.
+--- When submit=true: Ctrl-C clear + bracketed paste + Enter (full submit).
+--- When submit=false: Ctrl-C clear + raw keystrokes (no bracketed paste,
+---   no Enter). The text should be a single line (no newlines) so it appears
+---   in pi's editor for the user to augment before submitting.
 ---@param text string
----@param submit boolean Whether to press Enter after pasting
+---@param submit boolean Whether to auto-submit or type into the editor
 local function do_send(text, submit)
   if M.chan == nil then
     return
   end
 
-  -- Optionally clear pi's editor with Ctrl-C before pasting
+  -- Clear pi's editor with Ctrl-C
   if config.opts.terminal.clear_before_send then
     vim.fn.chansend(M.chan, "\x03")
   end
 
-  -- After a brief delay, paste the prompt
   vim.defer_fn(function()
     if M.chan == nil then
       return
     end
-    -- Bracketed paste: \x1b[200~ ... \x1b[201~
-    vim.fn.chansend(M.chan, "\x1b[200~" .. text .. "\x1b[201~")
-    -- Only submit with Enter if requested
+
     if submit then
+      -- Bracketed paste + Enter for full submit
+      vim.fn.chansend(M.chan, "\x1b[200~" .. text .. "\x1b[201~")
       vim.fn.chansend(M.chan, "\r")
+    else
+      -- Raw keystrokes — text appears in pi's editor for the user to augment
+      vim.fn.chansend(M.chan, text)
     end
   end, config.opts.terminal.send_delay)
 end
