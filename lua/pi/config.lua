@@ -76,6 +76,9 @@ M.defaults = {
     select = "<leader>px",
     prompt_this = "<leader>pp",
     abort = "<leader>pq",
+    model = "<leader>pm",
+    cycle_model = "<leader>pn",
+    cycle_thinking = "<leader>pk",
   },
 
   events = {

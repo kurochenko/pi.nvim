@@ -283,6 +283,98 @@ function M._show_picker(items, ctx)
   end)
 end
 
+--- Open a model picker to switch models.
+function M.pick_model()
+  local rpc = require("pi.rpc")
+  if not rpc.is_ready() then
+    vim.notify("Pi: RPC not connected", vim.log.levels.WARN)
+    return
+  end
+
+  rpc.request({ type = "get_available_models" }, function(response)
+    if not response.success or not response.data or not response.data.models then
+      vim.notify("Pi: failed to get models", vim.log.levels.ERROR)
+      return
+    end
+
+    local models = response.data.models
+    local labels = {}
+    for _, model in ipairs(models) do
+      local cost_str = ""
+      if model.cost then
+        cost_str = string.format(" ($%.1f/%.1f per MTok)", model.cost.input or 0, model.cost.output or 0)
+      end
+      local ctx_str = ""
+      if model.contextWindow then
+        ctx_str = string.format(" [%dk ctx]", model.contextWindow / 1000)
+      end
+      labels[#labels + 1] = string.format(
+        "%s (%s)%s%s",
+        model.name or model.id,
+        model.provider or "unknown",
+        ctx_str,
+        cost_str
+      )
+    end
+
+    vim.ui.select(labels, { prompt = "Select Model:" }, function(_, idx)
+      if not idx then
+        return
+      end
+      local selected = models[idx]
+      rpc.request(
+        { type = "set_model", provider = selected.provider, modelId = selected.id },
+        function(resp)
+          if resp.success then
+            vim.notify(string.format("Pi: switched to %s", selected.name or selected.id))
+            -- Update events state
+            require("pi.events").refresh_state()
+          else
+            vim.notify("Pi: failed to switch model: " .. (resp.error or "unknown"), vim.log.levels.ERROR)
+          end
+        end
+      )
+    end)
+  end)
+end
+
+--- Cycle to the next model.
+function M.cycle_model()
+  local rpc = require("pi.rpc")
+  if not rpc.is_ready() then
+    vim.notify("Pi: RPC not connected", vim.log.levels.WARN)
+    return
+  end
+
+  rpc.request({ type = "cycle_model" }, function(response)
+    if response.success and response.data and response.data.model then
+      local model = response.data.model
+      local thinking = response.data.thinkingLevel or ""
+      vim.notify(string.format("Pi: %s [%s]", model.name or model.id, thinking))
+      require("pi.events").refresh_state()
+    end
+  end)
+end
+
+--- Cycle thinking level.
+function M.cycle_thinking()
+  local rpc = require("pi.rpc")
+  if not rpc.is_ready() then
+    vim.notify("Pi: RPC not connected", vim.log.levels.WARN)
+    return
+  end
+
+  rpc.request({ type = "cycle_thinking_level" }, function(response)
+    if response.success and response.data then
+      local level = response.data.level or "off"
+      vim.notify("Pi: thinking → " .. level)
+      require("pi.events").refresh_state()
+    elseif response.success then
+      vim.notify("Pi: model does not support thinking levels", vim.log.levels.INFO)
+    end
+  end)
+end
+
 --- Abort pi's current operation.
 function M.abort()
   local config = require("pi.config")
@@ -392,6 +484,24 @@ function M._setup_keymaps()
     vim.keymap.set("n", km.abort, function()
       M.abort()
     end, { silent = true, desc = "Pi: Abort" })
+  end
+
+  if km.model then
+    vim.keymap.set("n", km.model, function()
+      M.pick_model()
+    end, { silent = true, desc = "Pi: Pick model" })
+  end
+
+  if km.cycle_model then
+    vim.keymap.set("n", km.cycle_model, function()
+      M.cycle_model()
+    end, { silent = true, desc = "Pi: Cycle model" })
+  end
+
+  if km.cycle_thinking then
+    vim.keymap.set("n", km.cycle_thinking, function()
+      M.cycle_thinking()
+    end, { silent = true, desc = "Pi: Cycle thinking level" })
   end
 end
 
