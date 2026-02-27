@@ -242,7 +242,8 @@ end
 
 --- Perform the actual paste into the terminal.
 ---@param text string
-local function do_send(text)
+---@param submit boolean Whether to press Enter after pasting
+local function do_send(text, submit)
   if M.chan == nil then
     return
   end
@@ -252,22 +253,25 @@ local function do_send(text)
     vim.fn.chansend(M.chan, "\x03")
   end
 
-  -- After a brief delay, paste the prompt and submit
+  -- After a brief delay, paste the prompt
   vim.defer_fn(function()
     if M.chan == nil then
       return
     end
     -- Bracketed paste: \x1b[200~ ... \x1b[201~
     vim.fn.chansend(M.chan, "\x1b[200~" .. text .. "\x1b[201~")
-    -- Submit with Enter
-    vim.fn.chansend(M.chan, "\r")
+    -- Only submit with Enter if requested
+    if submit then
+      vim.fn.chansend(M.chan, "\r")
+    end
   end, config.opts.terminal.send_delay)
 end
 
 --- Poll for terminal readiness, then send. Gives up after max_retries.
 ---@param text string
+---@param submit boolean
 ---@param attempt integer
-local function wait_and_send(text, attempt)
+local function wait_and_send(text, submit, attempt)
   local max_retries = config.opts.terminal.max_retries
   local delay = math.floor(config.opts.terminal.startup_timeout / max_retries)
 
@@ -284,9 +288,9 @@ local function wait_and_send(text, attempt)
       if not M.is_open() then
         M.open()
       end
-      do_send(text)
+      do_send(text, submit)
     else
-      wait_and_send(text, attempt + 1)
+      wait_and_send(text, submit, attempt + 1)
     end
   end, delay)
 end
@@ -294,10 +298,14 @@ end
 --- Send a prompt to pi via bracketed paste.
 --- If the terminal isn't running, starts it and polls until ready (with timeout).
 ---@param text string
-function M.send(text)
+---@param opts? { submit?: boolean } Whether to press Enter after pasting (default true)
+function M.send(text, opts)
+  opts = opts or {}
+  local submit = opts.submit ~= false -- default true
+
   if not M.is_alive() then
     M.open()
-    wait_and_send(text, 0)
+    wait_and_send(text, submit, 0)
     return
   end
 
@@ -306,7 +314,7 @@ function M.send(text)
     M.open()
   end
 
-  do_send(text)
+  do_send(text, submit)
 end
 
 --- Send abort signal to pi (Escape key).

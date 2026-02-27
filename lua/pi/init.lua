@@ -83,7 +83,7 @@ end
 --- Send a prompt directly to pi (no input dialog).
 --- If text matches a named prompt from config, it expands it.
 ---@param text string
----@param opts? { context?: pi.Context }
+---@param opts? { context?: pi.Context, submit?: boolean }
 function M.prompt(text, opts)
   opts = opts or {}
 
@@ -100,7 +100,8 @@ function M.prompt(text, opts)
   local ctx = opts.context or context_mod.Context.new()
   local resolved = context_mod.resolve(text, ctx)
   ctx:clear()
-  terminal.send(resolved)
+  -- Default: submit (press Enter). Pass submit=false to just paste without submitting.
+  terminal.send(resolved, { submit = opts.submit ~= false })
 end
 
 --- Open a picker to select from available prompts and actions.
@@ -236,10 +237,10 @@ function M._setup_keymaps()
 
   if km.prompt_this then
     vim.keymap.set("n", km.prompt_this, function()
-      M.prompt("@this")
+      M.prompt("@this", { submit = false })
     end, { silent = true, desc = "Pi: Send code context" })
     vim.keymap.set("v", km.prompt_this, function()
-      M.prompt("@this")
+      M.prompt("@this", { submit = false })
     end, { silent = true, desc = "Pi: Send selection" })
   end
 
