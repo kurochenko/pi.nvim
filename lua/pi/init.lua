@@ -7,17 +7,63 @@ function M.setup(opts)
   config.setup(opts)
   M._setup_keymaps()
 
-  if config.opts.terminal.auto_start then
-    -- Defer to ensure Neovim UI is fully initialized
-    vim.schedule(function()
-      require("pi.terminal").open()
-    end)
+  local mode = config.opts.mode or "rpc"
+
+  if mode == "rpc" then
+    -- Connect event system and streaming handler
+    local events = require("pi.events")
+    local stream = require("pi.stream")
+    events.connect()
+    stream.connect()
+
+    if config.opts.rpc and config.opts.rpc.auto_start ~= false then
+      vim.schedule(function()
+        local rpc = require("pi.rpc")
+        rpc.start({
+          on_ready = function()
+            -- Load existing conversation into chat buffer
+            M._load_history()
+          end,
+        })
+      end)
+    end
+  elseif mode == "terminal" then
+    if config.opts.terminal.auto_start then
+      vim.schedule(function()
+        require("pi.terminal").open()
+      end)
+    end
   end
 end
 
---- Toggle the pi terminal panel.
+--- Load conversation history from an existing session into the chat buffer.
+function M._load_history()
+  local rpc = require("pi.rpc")
+  if not rpc.is_ready() then
+    return
+  end
+
+  rpc.request({ type = "get_messages" }, function(response)
+    if response.success and response.data and response.data.messages then
+      local messages = response.data.messages
+      if #messages > 0 then
+        local chat = require("pi.chat")
+        chat.open()
+        chat.render_messages(messages)
+      end
+    end
+  end)
+end
+
+--- Toggle the pi panel.
 function M.toggle()
-  require("pi.terminal").toggle()
+  local config = require("pi.config")
+  if (config.opts.mode or "rpc") == "terminal" then
+    require("pi.terminal").toggle()
+  else
+    local chat = require("pi.chat")
+    chat.toggle()
+  end
 end
 
 --- Open an input prompt, resolve context placeholders, and send to pi.
@@ -29,7 +75,6 @@ function M.ask(default_text, opts)
   default_text = default_text or ""
 
   local context_mod = require("pi.context")
-  local terminal = require("pi.terminal")
   local config = require("pi.config")
 
   -- Capture context before opening input (preserves visual selection)
@@ -39,7 +84,7 @@ function M.ask(default_text, opts)
   if opts.submit then
     local resolved = context_mod.resolve(default_text, ctx)
     ctx:clear()
-    terminal.send(resolved)
+    M._send_resolved(resolved)
     return
   end
 
@@ -59,13 +104,12 @@ function M.ask(default_text, opts)
 
     Snacks.input(snacks_opts, function(input)
       if input == nil then
-        -- Cancelled
         ctx:resume()
         return
       end
       local resolved = context_mod.resolve(input, ctx)
       ctx:clear()
-      terminal.send(resolved)
+      M._send_resolved(resolved)
     end)
   else
     vim.ui.input(input_opts, function(input)
@@ -75,9 +119,44 @@ function M.ask(default_text, opts)
       end
       local resolved = context_mod.resolve(input, ctx)
       ctx:clear()
-      terminal.send(resolved)
+      M._send_resolved(resolved)
     end)
   end
+end
+
+--- Send resolved text to pi (routes to RPC or terminal based on mode).
+---@param text string
+---@param opts? { submit?: boolean }
+function M._send_resolved(text, opts)
+  opts = opts or {}
+  local config = require("pi.config")
+  local mode = config.opts.mode or "rpc"
+
+  if mode == "terminal" then
+    require("pi.terminal").send(text, { submit = opts.submit ~= false })
+    return
+  end
+
+  -- RPC mode
+  local rpc = require("pi.rpc")
+  local chat = require("pi.chat")
+  local events = require("pi.events")
+
+  -- Ensure chat is visible
+  chat.open()
+
+  local state = events.get_state_ref()
+
+  rpc.ensure_running(function()
+    local cmd = { type = "prompt", message = text }
+
+    -- Handle streaming behavior
+    if state.is_streaming then
+      cmd.streamingBehavior = "followUp"
+    end
+
+    rpc.send(cmd)
+  end)
 end
 
 --- Send a prompt directly to pi (no input dialog).
@@ -89,7 +168,6 @@ function M.prompt(text, opts)
 
   local config = require("pi.config")
   local context_mod = require("pi.context")
-  local terminal = require("pi.terminal")
 
   -- Check if text is a named prompt key
   local prompt_def = config.opts.prompts[text]
@@ -100,8 +178,13 @@ function M.prompt(text, opts)
   local ctx = opts.context or context_mod.Context.new()
   local resolved = context_mod.resolve(text, ctx)
   ctx:clear()
-  -- Default: submit (press Enter). Pass submit=false to just paste without submitting.
-  terminal.send(resolved, { submit = opts.submit ~= false })
+
+  local mode = config.opts.mode or "rpc"
+  if mode == "terminal" then
+    require("pi.terminal").send(resolved, { submit = opts.submit ~= false })
+  else
+    M._send_resolved(resolved)
+  end
 end
 
 --- Open a picker to select from available prompts and actions.
@@ -130,11 +213,38 @@ function M.select()
     return a.name < b.name
   end)
 
+  -- Add pi extension commands (from RPC) if available
+  local mode = config.opts.mode or "rpc"
+  if mode == "rpc" then
+    local rpc = require("pi.rpc")
+    if rpc.is_ready() then
+      rpc.request({ type = "get_commands" }, function(response)
+        if response.success and response.data and response.data.commands then
+          for _, cmd in ipairs(response.data.commands) do
+            items[#items + 1] = {
+              label = "/" .. cmd.name .. ": " .. (cmd.description or ""),
+              kind = "command",
+              name = cmd.name,
+            }
+          end
+        end
+        M._show_picker(items, ctx)
+      end)
+      return
+    end
+  end
+
+  M._show_picker(items, ctx)
+end
+
+--- Show the action picker with the given items.
+---@param items table[]
+---@param ctx pi.Context
+function M._show_picker(items, ctx)
   -- Add control actions
   items[#items + 1] = { label = "[control] abort: Cancel pi's current operation", kind = "control", action = "abort" }
   items[#items + 1] = { label = "[control] toggle: Toggle pi panel", kind = "control", action = "toggle" }
 
-  -- Format items for vim.ui.select
   local labels = {}
   for _, item in ipairs(items) do
     labels[#labels + 1] = item.label
@@ -154,9 +264,14 @@ function M.select()
     local selected = items[idx]
 
     if selected.kind == "prompt" then
+      local context_mod = require("pi.context")
       local resolved = context_mod.resolve(selected.text, ctx)
       ctx:clear()
-      require("pi.terminal").send(resolved)
+      M._send_resolved(resolved)
+    elseif selected.kind == "command" then
+      ctx:clear()
+      -- Send as /command via prompt
+      M._send_resolved("/" .. selected.name)
     elseif selected.kind == "control" then
       ctx:clear()
       if selected.action == "abort" then
@@ -170,27 +285,40 @@ end
 
 --- Abort pi's current operation.
 function M.abort()
-  require("pi.terminal").send_abort()
+  local config = require("pi.config")
+  if (config.opts.mode or "rpc") == "terminal" then
+    require("pi.terminal").send_abort()
+  else
+    require("pi.rpc").abort()
+  end
 end
 
---- Send a compact file reference (path:lines) to pi's editor without submitting.
---- The reference is typed as raw keystrokes so the user can add instructions
---- and submit manually.
+--- Send a compact file reference (path:lines) for the context.
+--- In RPC mode, sends the full resolved @this context as a prompt.
+--- In terminal mode, sends raw keystrokes of the file reference.
 function M.send_context()
   local context_mod = require("pi.context")
-  local terminal = require("pi.terminal")
-
+  local config = require("pi.config")
   local ctx = context_mod.Context.new()
-  local ref = ctx:ref()
-  ctx:clear()
 
-  if ref then
-    terminal.send(ref, { submit = false })
+  if (config.opts.mode or "rpc") == "terminal" then
+    -- Terminal mode: send compact reference as raw keystrokes
+    local ref = ctx:ref()
+    ctx:clear()
+    if ref then
+      require("pi.terminal").send(ref, { submit = false })
+    end
+  else
+    -- RPC mode: open input with context reference pre-filled
+    local ref = ctx:ref()
+    ctx:clear()
+    if ref then
+      M.ask(ref, { context = ctx })
+    end
   end
 end
 
 --- Create an operator function for dot-repeat support.
---- Usage: vim.keymap.set("n", "gp", function() return require("pi").operator("@this: ") end, { expr = true })
 ---@param prefix string Text to prepend to the prompt
 ---@param opts? { submit?: boolean }
 ---@return string "g@" to trigger operatorfunc
