@@ -560,9 +560,10 @@ function M.append_user_message(text)
 end
 
 --- Append a tool execution start indicator.
+---@param tool_call_id string
 ---@param tool_name string
 ---@param args? table
-function M.append_tool_start(tool_name, args)
+function M.append_tool_start(tool_call_id, tool_name, args)
   local lines = { string.format("**🔧 Running %s...**", tool_name) }
 
   if args then
@@ -577,23 +578,82 @@ function M.append_tool_start(tool_name, args)
 
   lines[#lines + 1] = ""
   M.append(lines)
+
+  -- Track start position for live updates (bash)
+  if tool_name == "bash" and tool_call_id then
+    tool_progress[tool_call_id] = {
+      start_line = vim.api.nvim_buf_line_count(M.buf) - 1,
+    }
+  end
 end
 
---- Update tool execution progress.
+--- Track tool execution progress for live updates.
+---@type table<string, { start_line: integer }>
+local tool_progress = {}
+
+--- Update tool execution progress (replaces output in-place for bash).
+---@param tool_call_id string
 ---@param tool_name string
 ---@param partial_result? table
-function M.update_tool_progress(tool_name, partial_result)
-  -- For now just show that it's still running
-  -- Could replace the last tool block with accumulated output
-  _ = tool_name
-  _ = partial_result
+function M.update_tool_progress(tool_call_id, tool_name, partial_result)
+  if not partial_result or not partial_result.content then
+    return
+  end
+
+  -- Only do live updates for bash (others are quick)
+  if tool_name ~= "bash" then
+    return
+  end
+
+  -- Get the text content from the partial result
+  local text = ""
+  for _, block in ipairs(partial_result.content) do
+    if block.type == "text" and block.text then
+      text = block.text
+    end
+  end
+
+  if text == "" then
+    return
+  end
+
+  local track = tool_progress[tool_call_id]
+  if not track then
+    return
+  end
+
+  -- Replace from the tracked start line with the accumulated output
+  local output_lines = vim.split(text, "\n")
+  -- Truncate for display
+  if #output_lines > 50 then
+    local truncated = {}
+    for i = #output_lines - 49, #output_lines do
+      truncated[#truncated + 1] = output_lines[i]
+    end
+    output_lines = truncated
+  end
+
+  local display = { "```" }
+  for _, line in ipairs(output_lines) do
+    display[#display + 1] = line
+  end
+  display[#display + 1] = "```"
+  display[#display + 1] = ""
+
+  M.replace_from(track.start_line, display)
 end
 
 --- Append tool execution result.
+---@param tool_call_id string
 ---@param tool_name string
 ---@param result? table
 ---@param is_error boolean
-function M.append_tool_result(tool_name, result, is_error)
+function M.append_tool_result(tool_call_id, tool_name, result, is_error)
+  -- Clean up progress tracking
+  if tool_call_id then
+    tool_progress[tool_call_id] = nil
+  end
+
   local lines = {}
   local icon = is_error and "❌" or "✅"
   lines[#lines + 1] = string.format("**%s %s done**", icon, tool_name)

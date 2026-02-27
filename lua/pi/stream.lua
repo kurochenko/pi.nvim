@@ -168,21 +168,21 @@ end
 ---@param event table
 local function on_tool_exec_start(event)
   local chat = require("pi.chat")
-  chat.append_tool_start(event.toolName or "tool", event.args)
+  chat.append_tool_start(event.toolCallId or "", event.toolName or "tool", event.args)
 end
 
 --- Handle tool_execution_update.
 ---@param event table
 local function on_tool_exec_update(event)
   local chat = require("pi.chat")
-  chat.update_tool_progress(event.toolName or "tool", event.partialResult)
+  chat.update_tool_progress(event.toolCallId or "", event.toolName or "tool", event.partialResult)
 end
 
 --- Handle tool_execution_end.
 ---@param event table
 local function on_tool_exec_end(event)
   local chat = require("pi.chat")
-  chat.append_tool_result(event.toolName or "tool", event.result, event.isError or false)
+  chat.append_tool_result(event.toolCallId or "", event.toolName or "tool", event.result, event.isError or false)
 
   -- Trigger buffer reload for file-editing tools
   if not event.isError then
