@@ -14,8 +14,7 @@ Neovim plugin that integrates the [Pi](https://pi.dev) coding agent into a side 
 
 ```lua
 {
-  dir = "~/projects/personal/nvim-pi",  -- local development
-  -- or: "andrej/pi.nvim",             -- once published
+  "kurochenko/pi.nvim",
   dependencies = {
     { "folke/snacks.nvim", optional = true },
   },
