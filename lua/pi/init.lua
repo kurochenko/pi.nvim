@@ -6,6 +6,13 @@ function M.setup(opts)
   local config = require("pi.config")
   config.setup(opts)
   M._setup_keymaps()
+
+  if config.opts.terminal.auto_start then
+    -- Defer to ensure Neovim UI is fully initialized
+    vim.schedule(function()
+      require("pi.terminal").open()
+    end)
+  end
 end
 
 --- Toggle the pi terminal panel.
@@ -123,9 +130,8 @@ function M.select()
   end)
 
   -- Add control actions
-  items[#items + 1] = { label = "─── Controls ───", kind = "separator" }
-  items[#items + 1] = { label = "abort: Cancel pi's current operation", kind = "control", action = "abort" }
-  items[#items + 1] = { label = "toggle: Toggle pi panel", kind = "control", action = "toggle" }
+  items[#items + 1] = { label = "[control] abort: Cancel pi's current operation", kind = "control", action = "abort" }
+  items[#items + 1] = { label = "[control] toggle: Toggle pi panel", kind = "control", action = "toggle" }
 
   -- Format items for vim.ui.select
   local labels = {}
@@ -145,10 +151,6 @@ function M.select()
     end
 
     local selected = items[idx]
-    if selected.kind == "separator" then
-      ctx:resume()
-      return
-    end
 
     if selected.kind == "prompt" then
       local resolved = context_mod.resolve(selected.text, ctx)
@@ -179,7 +181,7 @@ function M.operator(prefix, opts)
   opts = opts or {}
 
   ---@param kind "char"|"line"|"block"
-  _G.pi_prompt_operator = function(kind)
+  _G._pi_operatorfunc = function(kind)
     local start_pos = vim.api.nvim_buf_get_mark(0, "[")
     local end_pos = vim.api.nvim_buf_get_mark(0, "]")
     if start_pos[1] > end_pos[1] or (start_pos[1] == end_pos[1] and start_pos[2] > end_pos[2]) then
@@ -202,7 +204,7 @@ function M.operator(prefix, opts)
     end
   end
 
-  vim.o.operatorfunc = "v:lua.pi_prompt_operator"
+  vim.o.operatorfunc = "v:lua._pi_operatorfunc"
   return "g@"
 end
 
@@ -214,37 +216,37 @@ function M._setup_keymaps()
   if km.toggle then
     vim.keymap.set({ "n", "t" }, km.toggle, function()
       M.toggle()
-    end, { desc = "Pi: Toggle panel" })
+    end, { silent = true, desc = "Pi: Toggle panel" })
   end
 
   if km.ask then
     vim.keymap.set("n", km.ask, function()
       M.ask("@this: ")
-    end, { desc = "Pi: Ask about code" })
+    end, { silent = true, desc = "Pi: Ask about code" })
     vim.keymap.set("v", km.ask, function()
       M.ask("@this: ")
-    end, { desc = "Pi: Ask about selection" })
+    end, { silent = true, desc = "Pi: Ask about selection" })
   end
 
   if km.select then
     vim.keymap.set({ "n", "v" }, km.select, function()
       M.select()
-    end, { desc = "Pi: Action picker" })
+    end, { silent = true, desc = "Pi: Action picker" })
   end
 
   if km.prompt_this then
     vim.keymap.set("n", km.prompt_this, function()
       M.prompt("@this")
-    end, { desc = "Pi: Send code context" })
+    end, { silent = true, desc = "Pi: Send code context" })
     vim.keymap.set("v", km.prompt_this, function()
       M.prompt("@this")
-    end, { desc = "Pi: Send selection" })
+    end, { silent = true, desc = "Pi: Send selection" })
   end
 
   if km.abort then
     vim.keymap.set("n", km.abort, function()
       M.abort()
-    end, { desc = "Pi: Abort" })
+    end, { silent = true, desc = "Pi: Abort" })
   end
 end
 

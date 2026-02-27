@@ -89,7 +89,13 @@ local function open_snacks(cmd, enter)
     snacks_opts.win.width = split_size()
   end
 
-  snacks_term = Snacks.terminal.open(cmd, snacks_opts)
+  local ok, result = pcall(Snacks.terminal.open, cmd, snacks_opts)
+  if not ok then
+    vim.notify("Pi: failed to open terminal via snacks.nvim: " .. tostring(result), vim.log.levels.ERROR)
+    return
+  end
+
+  snacks_term = result
 
   if snacks_term and snacks_term.buf then
     M.buf = snacks_term.buf
@@ -97,6 +103,9 @@ local function open_snacks(cmd, enter)
     -- Find the terminal channel from the buffer
     M.chan = vim.bo[M.buf].channel
     setup_autocmds(M.buf)
+  else
+    vim.notify("Pi: snacks.terminal.open returned unexpected result", vim.log.levels.ERROR)
+    snacks_term = nil
   end
 end
 
@@ -132,7 +141,14 @@ end
 
 --- Re-open the existing terminal buffer in a new split.
 ---@param enter boolean
+---@return boolean success
 local function reopen_split(enter)
+  -- Guard: ensure buffer is still valid before attempting to reopen
+  if not M.buf or not vim.api.nvim_buf_is_valid(M.buf) then
+    reset_state()
+    return false
+  end
+
   local pos = config.opts.terminal.position
   local size = split_size()
   local source_win = vim.api.nvim_get_current_win()
@@ -152,6 +168,8 @@ local function reopen_split(enter)
   if not enter then
     vim.api.nvim_set_current_win(source_win)
   end
+
+  return true
 end
 
 --- Check if the terminal window is currently visible.
@@ -182,8 +200,10 @@ function M.open(opts)
 
   -- Buffer exists but window was closed — reopen in a split
   if M.is_alive() then
-    reopen_split(enter)
-    return
+    if reopen_split(enter) then
+      return
+    end
+    -- Buffer became invalid between is_alive() check and reopen — fall through to fresh start
   end
 
   -- Fresh start: launch pi in a new terminal
@@ -220,28 +240,19 @@ function M.focus()
   end
 end
 
---- Send a prompt to pi via bracketed paste.
---- Clears pi's editor first, pastes the text, then submits with Enter.
+--- Perform the actual paste into the terminal.
 ---@param text string
-function M.send(text)
-  if not M.is_alive() then
-    M.open()
-    -- Wait for pi to start before sending
-    vim.defer_fn(function()
-      M.send(text)
-    end, 500)
+local function do_send(text)
+  if M.chan == nil then
     return
   end
 
-  -- Make sure the panel is visible
-  if not M.is_open() then
-    M.open()
+  -- Optionally clear pi's editor with Ctrl-C before pasting
+  if config.opts.terminal.clear_before_send then
+    vim.fn.chansend(M.chan, "\x03")
   end
 
-  -- Step 1: Clear pi's editor with Ctrl+C
-  vim.fn.chansend(M.chan, "\x03")
-
-  -- Step 2: After a brief delay, paste the prompt and submit
+  -- After a brief delay, paste the prompt and submit
   vim.defer_fn(function()
     if M.chan == nil then
       return
@@ -250,14 +261,66 @@ function M.send(text)
     vim.fn.chansend(M.chan, "\x1b[200~" .. text .. "\x1b[201~")
     -- Submit with Enter
     vim.fn.chansend(M.chan, "\r")
-  end, 50)
+  end, config.opts.terminal.send_delay)
+end
+
+--- Poll for terminal readiness, then send. Gives up after max_retries.
+---@param text string
+---@param attempt integer
+local function wait_and_send(text, attempt)
+  local max_retries = config.opts.terminal.max_retries
+  local delay = math.floor(config.opts.terminal.startup_timeout / max_retries)
+
+  if attempt >= max_retries then
+    vim.notify(
+      string.format("Pi: terminal failed to start after %dms (%d retries)", config.opts.terminal.startup_timeout, max_retries),
+      vim.log.levels.ERROR
+    )
+    return
+  end
+
+  vim.defer_fn(function()
+    if M.is_alive() then
+      if not M.is_open() then
+        M.open()
+      end
+      do_send(text)
+    else
+      wait_and_send(text, attempt + 1)
+    end
+  end, delay)
+end
+
+--- Send a prompt to pi via bracketed paste.
+--- If the terminal isn't running, starts it and polls until ready (with timeout).
+---@param text string
+function M.send(text)
+  if not M.is_alive() then
+    M.open()
+    wait_and_send(text, 0)
+    return
+  end
+
+  -- Make sure the panel is visible
+  if not M.is_open() then
+    M.open()
+  end
+
+  do_send(text)
 end
 
 --- Send abort signal to pi (Escape key).
+--- Sends Escape twice with a short delay to avoid ambiguity with escape sequences.
 function M.send_abort()
-  if M.chan ~= nil then
-    vim.fn.chansend(M.chan, "\x1b")
+  if M.chan == nil then
+    return
   end
+  vim.fn.chansend(M.chan, "\x1b")
+  vim.defer_fn(function()
+    if M.chan ~= nil then
+      vim.fn.chansend(M.chan, "\x1b")
+    end
+  end, 10)
 end
 
 return M

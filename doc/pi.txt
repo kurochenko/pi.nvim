@@ -1,0 +1,272 @@
+*pi.txt*	Pi coding agent integration for Neovim
+
+Author:   kurochenko
+License:  MIT
+Homepage: https://github.com/kurochenko/pi.nvim
+
+==============================================================================
+CONTENTS                                                        *pi-contents*
+
+  1. Introduction .................. |pi-introduction|
+  2. Requirements .................. |pi-requirements|
+  3. Installation .................. |pi-installation|
+  4. Configuration ................. |pi-configuration|
+  5. Usage ......................... |pi-usage|
+  6. Commands ...................... |pi-commands|
+  7. Keymaps ....................... |pi-keymaps|
+  8. Context Placeholders .......... |pi-context|
+  9. Prompts ....................... |pi-prompts|
+  10. API .......................... |pi-api|
+  11. Health Check ................. |pi-health|
+
+==============================================================================
+1. INTRODUCTION                                             *pi-introduction*
+
+pi.nvim integrates the Pi (https://pi.dev) coding agent into a Neovim side
+panel with bidirectional context passing. Select code in Neovim and send it
+to Pi with a single keypress.
+
+Pi runs in an embedded Neovim terminal buffer. When you trigger a prompt:
+
+  1. Your selection/context is captured from the editor
+  2. `@placeholders` in the prompt are resolved to actual code content
+  3. The resolved text is injected into Pi's TUI editor via bracketed paste
+  4. Pi processes the prompt and you see the response in its TUI panel
+  5. When Pi edits files, Neovim auto-detects changes via `checktime`
+
+==============================================================================
+2. REQUIREMENTS                                             *pi-requirements*
+
+  - Neovim >= 0.10
+  - pi CLI installed and in PATH (https://pi.dev)
+  - snacks.nvim (optional, recommended — enhanced terminal & input UI)
+
+Run |:checkhealth| pi to verify your setup.
+
+==============================================================================
+3. INSTALLATION                                             *pi-installation*
+
+Using lazy.nvim: >lua
+
+  {
+    "kurochenko/pi.nvim",
+    dependencies = {
+      { "folke/snacks.nvim", optional = true },
+    },
+    config = function()
+      require("pi").setup({
+        -- your overrides here
+      })
+    end,
+  }
+<
+
+==============================================================================
+4. CONFIGURATION                                           *pi-configuration*
+
+Call `require("pi").setup(opts)` to configure. All fields are optional;
+defaults are shown below.
+                                                             *pi-setup-opts*
+>lua
+  require("pi").setup({
+    terminal = {
+      position = "right",          -- "left", "right", or "bottom"
+      size = 0.4,                  -- fraction of screen (0.0–1.0)
+      cmd = "pi",                  -- pi executable
+      continue_session = true,     -- pass -c flag
+      auto_start = false,          -- open panel on setup
+      send_delay = 50,             -- ms between clear and paste
+      startup_timeout = 5000,      -- ms total timeout for terminal start
+      max_retries = 10,            -- poll attempts during startup
+      clear_before_send = true,    -- send Ctrl-C before pasting
+    },
+
+    prompts = {
+      explain  = { text = "Explain @this and its context", submit = true },
+      review   = { text = "Review @this for correctness and readability", submit = true },
+      fix      = { text = "Fix @diagnostics", submit = true },
+      test     = { text = "Add tests for @this", submit = true },
+      document = { text = "Add documentation comments to @this", submit = true },
+      optimize = { text = "Optimize @this for performance and readability", submit = true },
+      implement = { text = "Implement @this", submit = true },
+      diff     = { text = "Review the following git diff: @diff", submit = true },
+    },
+
+    contexts = {
+      ["@this"] = true,
+      ["@buffer"] = true,
+      ["@buffers"] = true,
+      ["@visible"] = true,
+      ["@diagnostics"] = true,
+      ["@quickfix"] = true,
+      ["@diff"] = true,
+    },
+
+    ask = {
+      prompt = "pi> ",
+      snacks = {},                 -- snacks.input window options
+    },
+
+    keymaps = {
+      toggle = "<leader>pt",
+      ask = "<leader>pa",
+      select = "<leader>px",
+      prompt_this = "<leader>pp",
+      abort = "<leader>pq",
+    },
+
+    events = {
+      reload = true,               -- auto-reload buffers on FocusGained
+    },
+  })
+<
+                                                    *pi-config-disable*
+Set any prompt, context, or keymap to `false` to disable it: >lua
+
+  require("pi").setup({
+    prompts = { fix = false },     -- remove "fix" prompt
+    keymaps = { abort = false },   -- disable abort keymap
+  })
+<
+
+==============================================================================
+5. USAGE                                                         *pi-usage*
+
+Toggle panel ~
+  Press `<leader>pt` to open Pi in a side panel. Pi runs its full
+  interactive TUI — you can interact with it directly.
+
+Ask about code ~
+  Select code in visual mode, press `<leader>pa`, type your question,
+  press Enter. The selection is included as `@this` context.
+
+Action picker ~
+  Press `<leader>px` to choose from pre-configured prompts and controls.
+
+Direct send ~
+  `<leader>pp` sends code context to Pi immediately (no input dialog).
+
+Abort ~
+  `<leader>pq` sends Escape to cancel Pi's current operation.
+
+==============================================================================
+6. COMMANDS                                                   *pi-commands*
+
+                                                              *:Pi*
+:Pi [subcommand] [args]
+
+  Subcommands:
+
+  :Pi toggle            Toggle the terminal panel
+  :Pi ask [text]        Open input prompt (optional pre-filled text)
+  :Pi prompt {name}     Run a named prompt (e.g. "explain", "review")
+  :Pi prompt {text}     Send arbitrary text as a prompt
+  :Pi select            Open the action picker
+  :Pi abort             Abort Pi's current operation
+
+  Tab completion is available for subcommands and prompt names.
+
+==============================================================================
+7. KEYMAPS                                                     *pi-keymaps*
+
+Default keymaps (all configurable, set to `false` to disable):
+
+  Key           Mode    Action ~
+  `<leader>pt`  n, t    Toggle Pi panel
+  `<leader>pa`  n, v    Ask Pi about code / selection
+  `<leader>px`  n, v    Action picker (prompts + controls)
+  `<leader>pp`  n, v    Send code context directly to Pi
+  `<leader>pq`  n       Abort Pi's current operation
+
+==============================================================================
+8. CONTEXT PLACEHOLDERS                                       *pi-context*
+
+Prompts can include `@placeholders` that are resolved from editor state.
+Placeholders are only resolved if enabled in `config.contexts`.
+
+  Placeholder     Content ~
+  `@this`         Visual selection, or code around cursor (±5 lines)
+  `@buffer`       Full buffer content (truncated at 500 lines)
+  `@buffers`      List of all loaded file buffers with previews
+  `@visible`      Content visible in all windows
+  `@diagnostics`  LSP diagnostics for current buffer
+  `@quickfix`     Quickfix list entries
+  `@diff`         Git diff output
+
+Example: type `fix the error in @this based on @diagnostics` and both
+placeholders are expanded with actual code and diagnostic messages.
+
+==============================================================================
+9. PROMPTS                                                     *pi-prompts*
+
+Named prompts are defined in `config.prompts`. Each has:
+
+  - `text`: The prompt template (may contain @placeholders)
+  - `submit`: If true, send immediately; if false, open input dialog
+
+Use `:Pi prompt {name}` or the action picker (`<leader>px`) to trigger them.
+
+Add custom prompts: >lua
+
+  require("pi").setup({
+    prompts = {
+      refactor = { text = "Refactor @this for clarity", submit = true },
+      security = { text = "Review @this for security issues", submit = false },
+    },
+  })
+<
+
+==============================================================================
+10. API                                                           *pi-api*
+
+All functions are available via `require("pi")`.
+
+pi.setup({opts})                                              *pi.setup()*
+  Configure pi.nvim. See |pi-configuration|.
+
+pi.toggle()                                                  *pi.toggle()*
+  Toggle the Pi terminal panel open/closed.
+
+pi.ask({text}, {opts})                                          *pi.ask()*
+  Open an input prompt. Resolves context placeholders in the input,
+  then sends to Pi.
+  Parameters:
+    {text}  (string|nil)  Pre-filled input text
+    {opts}  (table|nil)   Options:
+      - submit (boolean): Skip input dialog, send immediately
+      - context (Context): Pre-captured context object
+
+pi.prompt({text}, {opts})                                    *pi.prompt()*
+  Send a prompt directly (no input dialog). If {text} matches a named
+  prompt key in config, expands it.
+  Parameters:
+    {text}  (string)      Prompt text or named prompt key
+    {opts}  (table|nil)   Options:
+      - context (Context): Pre-captured context object
+
+pi.select()                                                  *pi.select()*
+  Open a picker showing all configured prompts and control actions.
+
+pi.abort()                                                    *pi.abort()*
+  Send abort signal (Escape) to Pi.
+
+pi.operator({prefix}, {opts})                              *pi.operator()*
+  Create an operator function for dot-repeat support.
+  Returns "g@" for use in expression mappings.
+  Parameters:
+    {prefix}  (string)    Text to prepend to the prompt
+    {opts}    (table|nil) Options:
+      - submit (boolean): Send immediately after motion
+
+==============================================================================
+11. HEALTH CHECK                                               *pi-health*
+
+Run `:checkhealth pi` to verify:
+
+  - Neovim version >= 0.10
+  - Pi CLI is installed and in PATH
+  - snacks.nvim availability (optional)
+  - Configuration status
+
+==============================================================================
+ vim:tw=78:ts=8:ft=help:norl:

@@ -95,12 +95,8 @@ end
 ---@return pi.Context.Range|nil
 local function capture_visual_range()
   local mode = vim.fn.mode()
-  -- Check if we're in visual mode or just exited it
+  -- If in visual mode, exit to update '< and '> marks
   if mode:match("[vV\22]") then
-    -- Currently in visual mode
-    local start_pos = vim.fn.getpos("v")
-    local end_pos = vim.fn.getpos(".")
-    -- Exit visual mode to set '< and '> marks
     vim.cmd("normal! " .. vim.api.nvim_replace_termcodes("<Esc>", true, false, true))
   end
 
@@ -240,7 +236,8 @@ function Context:buffers()
       local path = buf_path(buf)
       local lines = vim.api.nvim_buf_get_lines(buf, 0, 3, false)
       local preview = table.concat(lines, "\n")
-      entries[#entries + 1] = string.format("- `%s`\n  ```\n  %s\n  ```", path, preview)
+      local ft = buf_filetype(buf)
+      entries[#entries + 1] = string.format("- `%s`\n  ```%s\n  %s\n  ```", path, ft, preview)
     end
   end
 
