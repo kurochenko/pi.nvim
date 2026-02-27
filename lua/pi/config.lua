@@ -1,10 +1,20 @@
 ---@class pi.Config
----@field terminal pi.Config.Terminal
+---@field mode "rpc"|"terminal" Communication mode (default: "rpc")
+---@field rpc pi.Config.Rpc RPC mode settings
+---@field terminal pi.Config.Terminal Terminal mode settings (legacy fallback)
 ---@field contexts table<string, boolean>
 ---@field prompts table<string, pi.Config.Prompt>
 ---@field ask pi.Config.Ask
 ---@field keymaps table<string, string|false>
 ---@field events pi.Config.Events
+
+---@class pi.Config.Rpc
+---@field cmd string Pi executable command
+---@field args string[] Extra args to pass to pi --mode rpc
+---@field continue_session boolean Pass -c flag to continue previous session
+---@field auto_start boolean Start RPC process on setup
+---@field position "left"|"right"|"bottom" Chat buffer position
+---@field size number Fraction of screen (0.0-1.0) for chat buffer
 
 ---@class pi.Config.Terminal
 ---@field position "left"|"right"|"bottom"
@@ -32,6 +42,17 @@ local M = {}
 
 ---@type pi.Config
 M.defaults = {
+  mode = "rpc",
+
+  rpc = {
+    cmd = "pi",
+    args = {},
+    continue_session = true,
+    auto_start = true,
+    position = "right",
+    size = 0.4,
+  },
+
   terminal = {
     position = "right",
     size = 0.4,
@@ -97,6 +118,14 @@ M._setup_called = false
 ---@param opts pi.Config
 local function validate(opts)
   vim.validate({
+    mode = {
+      opts.mode,
+      function(v)
+        return vim.tbl_contains({ "rpc", "terminal" }, v)
+      end,
+      "one of: rpc, terminal",
+    },
+    rpc = { opts.rpc, "table" },
     terminal = { opts.terminal, "table" },
     contexts = { opts.contexts, "table" },
     prompts = { opts.prompts, "table" },
@@ -105,6 +134,29 @@ local function validate(opts)
     events = { opts.events, "table" },
   })
 
+  -- Validate RPC config
+  vim.validate({
+    ["rpc.cmd"] = { opts.rpc.cmd, "string" },
+    ["rpc.args"] = { opts.rpc.args, "table" },
+    ["rpc.continue_session"] = { opts.rpc.continue_session, "boolean" },
+    ["rpc.auto_start"] = { opts.rpc.auto_start, "boolean" },
+    ["rpc.position"] = {
+      opts.rpc.position,
+      function(v)
+        return vim.tbl_contains({ "left", "right", "bottom" }, v)
+      end,
+      "one of: left, right, bottom",
+    },
+    ["rpc.size"] = {
+      opts.rpc.size,
+      function(v)
+        return type(v) == "number" and v > 0 and v < 1
+      end,
+      "number between 0 and 1 (exclusive)",
+    },
+  })
+
+  -- Validate terminal config
   vim.validate({
     ["terminal.position"] = {
       opts.terminal.position,

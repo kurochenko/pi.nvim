@@ -1,97 +1,90 @@
-*pi.txt*	Pi coding agent integration for Neovim
+*pi.txt*    Pi coding agent integration for Neovim
 
-Author:   kurochenko
+Author:   Andrej Kurocenko
 License:  MIT
-Homepage: https://github.com/kurochenko/pi.nvim
+Requires: Neovim >= 0.10, pi CLI
 
 ==============================================================================
-CONTENTS                                                        *pi-contents*
+CONTENTS                                                       *pi-contents*
 
-  1. Introduction .................. |pi-introduction|
-  2. Requirements .................. |pi-requirements|
-  3. Installation .................. |pi-installation|
-  4. Configuration ................. |pi-configuration|
-  5. Usage ......................... |pi-usage|
-  6. Commands ...................... |pi-commands|
-  7. Keymaps ....................... |pi-keymaps|
-  8. Context Placeholders .......... |pi-context|
-  9. Prompts ....................... |pi-prompts|
-  10. API .......................... |pi-api|
-  11. Health Check ................. |pi-health|
-
-==============================================================================
-1. INTRODUCTION                                             *pi-introduction*
-
-pi.nvim integrates the Pi (https://pi.dev) coding agent into a Neovim side
-panel with bidirectional context passing. Select code in Neovim and send it
-to Pi with a single keypress.
-
-Pi runs in an embedded Neovim terminal buffer. When you trigger a prompt:
-
-  1. Your selection/context is captured from the editor
-  2. `@placeholders` in the prompt are resolved to actual code content
-  3. The resolved text is injected into Pi's TUI editor via bracketed paste
-  4. Pi processes the prompt and you see the response in its TUI panel
-  5. When Pi edits files, Neovim auto-detects changes via `checktime`
+  1. Introduction ...................... |pi-introduction|
+  2. Installation ...................... |pi-installation|
+  3. Configuration ..................... |pi-configuration|
+  4. Modes ............................. |pi-modes|
+  5. Commands .......................... |pi-commands|
+  6. Keymaps ........................... |pi-keymaps|
+  7. Context Placeholders .............. |pi-context|
+  8. Named Prompts ..................... |pi-prompts|
+  9. Statusline ........................ |pi-statusline|
+ 10. Lua API ........................... |pi-api|
+ 11. Health Check ...................... |pi-health|
 
 ==============================================================================
-2. REQUIREMENTS                                             *pi-requirements*
+1. INTRODUCTION                                            *pi-introduction*
 
+pi.nvim integrates the Pi coding agent into Neovim. It supports two modes:
+
+  - **RPC mode** (default): Spawns `pi --mode rpc` as a subprocess and
+    renders the conversation in a native Neovim buffer with real-time
+    streaming. No terminal emulation — pure Lua integration.
+
+  - **Terminal mode** (legacy): Opens pi's TUI in a Neovim terminal split.
+    Communication via keystroke injection (chansend).
+
+RPC mode is recommended. It provides model/thinking controls, proper
+streaming display, extension UI handling, and no typing lag.
+
+==============================================================================
+2. INSTALLATION                                            *pi-installation*
+
+Prerequisites:
   - Neovim >= 0.10
   - pi CLI installed and in PATH (https://pi.dev)
-  - snacks.nvim (optional, recommended — enhanced terminal & input UI)
-
-Run |:checkhealth| pi to verify your setup.
-
-==============================================================================
-3. INSTALLATION                                             *pi-installation*
+  - Optional: snacks.nvim (enhanced input UI)
 
 Using lazy.nvim: >lua
-
   {
     "kurochenko/pi.nvim",
-    dependencies = {
-      { "folke/snacks.nvim", optional = true },
-    },
     config = function()
-      require("pi").setup({
-        -- your overrides here
-      })
+      require("pi").setup()
     end,
   }
 <
 
 ==============================================================================
-4. CONFIGURATION                                           *pi-configuration*
+3. CONFIGURATION                                          *pi-configuration*
 
-Call `require("pi").setup(opts)` to configure. All fields are optional;
-defaults are shown below.
-                                                             *pi-setup-opts*
+Call `require("pi").setup(opts)` with any of these options:
+
 >lua
   require("pi").setup({
+    -- Communication mode: "rpc" (default) or "terminal" (legacy)
+    mode = "rpc",
+
+    -- RPC mode settings
+    rpc = {
+      cmd = "pi",              -- Pi executable
+      args = {},               -- Extra args for pi --mode rpc
+      continue_session = true, -- Pass -c flag (continue previous session)
+      auto_start = true,       -- Start RPC process on setup
+      position = "right",      -- Chat buffer: "left", "right", "bottom"
+      size = 0.4,              -- Fraction of screen (0.0-1.0)
+    },
+
+    -- Terminal mode settings (only used when mode = "terminal")
     terminal = {
-      position = "right",          -- "left", "right", or "bottom"
-      size = 0.4,                  -- fraction of screen (0.0–1.0)
-      cmd = "pi",                  -- pi executable
-      continue_session = true,     -- pass -c flag
-      auto_start = false,          -- open panel on setup
-      send_delay = 50,             -- ms between clear and paste
-      startup_timeout = 5000,      -- ms total timeout for terminal start
-      max_retries = 10,            -- poll attempts during startup
-      clear_before_send = true,    -- send Ctrl-C before pasting
+      position = "right",
+      size = 0.4,
+      cmd = "pi",
+      continue_session = true,
+      auto_start = false,
+      send_delay = 50,
+      startup_timeout = 5000,
+      max_retries = 10,
+      clear_before_send = true,
     },
 
-    prompts = {
-      explain  = { text = "Explain @this and its context", submit = true },
-      review   = { text = "Review @this for correctness and readability", submit = true },
-      fix      = { text = "Fix @diagnostics", submit = true },
-      test     = { text = "Add tests for @this", submit = true },
-      document = { text = "Add documentation comments to @this", submit = true },
-      optimize = { text = "Optimize @this for performance and readability", submit = true },
-      implement = { text = "Implement @this", submit = true },
-      diff     = { text = "Review the following git diff: @diff", submit = true },
-    },
-
+    -- Context placeholders (set to false to disable)
     contexts = {
       ["@this"] = true,
       ["@buffer"] = true,
@@ -102,171 +95,208 @@ defaults are shown below.
       ["@diff"] = true,
     },
 
+    -- Named prompts (set to false to remove)
+    prompts = {
+      explain = { text = "Explain @this and its context", submit = true },
+      review = { text = "Review @this for correctness and readability", submit = true },
+      fix = { text = "Fix @diagnostics", submit = true },
+      test = { text = "Add tests for @this", submit = true },
+      document = { text = "Add documentation comments to @this", submit = true },
+      optimize = { text = "Optimize @this for performance and readability", submit = true },
+      implement = { text = "Implement @this", submit = true },
+      diff = { text = "Review the git diff: @diff", submit = true },
+    },
+
+    -- Input dialog settings
     ask = {
       prompt = "pi> ",
-      snacks = {},                 -- snacks.input window options
+      snacks = {},  -- Snacks.input window options
     },
 
+    -- Keymaps (set to false to disable)
     keymaps = {
-      toggle = "<leader>pt",
-      ask = "<leader>pa",
-      select = "<leader>px",
-      prompt_this = "<leader>pp",
-      abort = "<leader>pq",
+      toggle = "<leader>pt",         -- Toggle chat panel
+      ask = "<leader>pa",            -- Ask about code/selection
+      select = "<leader>px",         -- Action picker
+      prompt_this = "<leader>pp",    -- Send code context
+      abort = "<leader>pq",          -- Abort current operation
+      model = "<leader>pm",          -- Model picker
+      cycle_model = "<leader>pn",    -- Cycle to next model
+      cycle_thinking = "<leader>pk", -- Cycle thinking level
     },
 
+    -- Events
     events = {
-      reload = true,               -- auto-reload buffers on FocusGained
+      reload = true,  -- Auto-reload buffers on external changes
     },
   })
 <
-                                                    *pi-config-disable*
-Set any prompt, context, or keymap to `false` to disable it: >lua
-
-  require("pi").setup({
-    prompts = { fix = false },     -- remove "fix" prompt
-    keymaps = { abort = false },   -- disable abort keymap
-  })
-<
 
 ==============================================================================
-5. USAGE                                                         *pi-usage*
+4. MODES                                                        *pi-modes*
 
-Toggle panel ~
-  Press `<leader>pt` to open Pi in a side panel. Pi runs its full
-  interactive TUI — you can interact with it directly.
+RPC MODE (default)                                           *pi-mode-rpc*
 
-Ask about code ~
-  Select code in visual mode, press `<leader>pa`, type your question,
-  press Enter. The selection is included as `@this` context.
+Spawns `pi --mode rpc` as a subprocess. Communication via JSON over
+stdin/stdout. The conversation is rendered in a native Neovim buffer
+(markdown filetype with treesitter highlighting).
 
-Action picker ~
-  Press `<leader>px` to choose from pre-configured prompts and controls.
+Features:
+  - Real-time streaming (thinking + text deltas)
+  - Model switching and thinking level control
+  - Session management (new, stats, export)
+  - Extension UI handling (dialogs, notifications)
+  - Statusline integration
+  - No terminal overhead, no typing lag
 
-Direct send ~
-  `<leader>pp` sends code context to Pi immediately (no input dialog).
+TERMINAL MODE (legacy)                                  *pi-mode-terminal*
 
-Abort ~
-  `<leader>pq` sends Escape to cancel Pi's current operation.
+Opens pi's TUI in a Neovim terminal split. Communication via bracketed
+paste and keystroke injection (chansend).
 
-==============================================================================
-6. COMMANDS                                                   *pi-commands*
-
-                                                              *:Pi*
-:Pi [subcommand] [args]
-
-  Subcommands:
-
-  :Pi toggle            Toggle the terminal panel
-  :Pi ask [text]        Open input prompt (optional pre-filled text)
-  :Pi prompt {name}     Run a named prompt (e.g. "explain", "review")
-  :Pi prompt {text}     Send arbitrary text as a prompt
-  :Pi select            Open the action picker
-  :Pi abort             Abort Pi's current operation
-
-  Tab completion is available for subcommands and prompt names.
+Set `mode = "terminal"` in config to use this mode.
 
 ==============================================================================
-7. KEYMAPS                                                     *pi-keymaps*
+5. COMMANDS                                                  *pi-commands*
 
-Default keymaps (all configurable, set to `false` to disable):
+:Pi [subcmd]                                                         *:Pi*
 
-  Key           Mode    Action ~
-  `<leader>pt`  n, t    Toggle Pi panel
-  `<leader>pa`  n, v    Ask Pi about code / selection
-  `<leader>px`  n, v    Action picker (prompts + controls)
-  `<leader>pp`  n, v    Send code context directly to Pi
-  `<leader>pq`  n       Abort Pi's current operation
-
-==============================================================================
-8. CONTEXT PLACEHOLDERS                                       *pi-context*
-
-Prompts can include `@placeholders` that are resolved from editor state.
-Placeholders are only resolved if enabled in `config.contexts`.
-
-  Placeholder     Content ~
-  `@this`         Visual selection, or code around cursor (±5 lines)
-  `@buffer`       Full buffer content (truncated at 500 lines)
-  `@buffers`      List of all loaded file buffers with previews
-  `@visible`      Content visible in all windows
-  `@diagnostics`  LSP diagnostics for current buffer
-  `@quickfix`     Quickfix list entries
-  `@diff`         Git diff output
-
-Example: type `fix the error in @this based on @diagnostics` and both
-placeholders are expanded with actual code and diagnostic messages.
+  :Pi                 Toggle the pi panel
+  :Pi toggle          Toggle the pi panel
+  :Pi ask [text]      Open input dialog (optional default text)
+  :Pi prompt {text}   Send a named prompt or raw text
+  :Pi select          Open the action picker
+  :Pi abort           Abort current operation
+  :Pi model           Open model picker
+  :Pi cycle-model     Cycle to next model
+  :Pi thinking        Cycle thinking level
+  :Pi session new     Start a new session
+  :Pi session stats   Show session statistics
+  :Pi stats           Show session statistics (alias)
+  :Pi export          Export session to HTML
+  :Pi restart         Restart the RPC process
 
 ==============================================================================
-9. PROMPTS                                                     *pi-prompts*
+6. KEYMAPS                                                    *pi-keymaps*
 
-Named prompts are defined in `config.prompts`. Each has:
+Default keymaps (all configurable, set to false to disable):
 
-  - `text`: The prompt template (may contain @placeholders)
-  - `submit`: If true, send immediately; if false, open input dialog
+  <leader>pt  Toggle pi panel (normal + terminal mode)
+  <leader>pa  Ask about code (normal) / Ask about selection (visual)
+  <leader>px  Action picker (normal + visual)
+  <leader>pp  Send code context reference (normal + visual)
+  <leader>pq  Abort current operation (normal)
+  <leader>pm  Model picker (normal)
+  <leader>pn  Cycle to next model (normal)
+  <leader>pk  Cycle thinking level (normal)
 
-Use `:Pi prompt {name}` or the action picker (`<leader>px`) to trigger them.
+In the chat buffer:
+  q           Close the chat window
+
+==============================================================================
+7. CONTEXT PLACEHOLDERS                                      *pi-context*
+
+Context placeholders are expanded in prompt text:
+
+  @this         Selected code, or code around cursor (±5 lines)
+  @buffer       Full current buffer content (truncated at 500 lines)
+  @buffers      All loaded file buffers with 3-line previews
+  @visible      Content visible in all windows
+  @diagnostics  LSP diagnostics for the current buffer
+  @quickfix     Quickfix list entries
+  @diff         Git diff output
+
+Example: `"Review @this for bugs"` expands @this to the selected code
+with file path and line numbers in a markdown code fence.
+
+==============================================================================
+8. NAMED PROMPTS                                            *pi-prompts*
+
+Named prompts are predefined templates available via `:Pi prompt` and
+the action picker. They support context placeholders.
 
 Add custom prompts: >lua
-
   require("pi").setup({
     prompts = {
-      refactor = { text = "Refactor @this for clarity", submit = true },
-      security = { text = "Review @this for security issues", submit = false },
+      security = { text = "Audit @this for security issues", submit = true },
+    },
+  })
+<
+
+Remove built-in prompts: >lua
+  require("pi").setup({
+    prompts = {
+      optimize = false,  -- remove the optimize prompt
     },
   })
 <
 
 ==============================================================================
-10. API                                                           *pi-api*
+9. STATUSLINE                                              *pi-statusline*
 
-All functions are available via `require("pi")`.
+pi.nvim provides statusline functions via `require("pi.status")`:
 
-pi.setup({opts})                                              *pi.setup()*
-  Configure pi.nvim. See |pi-configuration|.
+>lua
+  -- Individual components
+  require("pi.status").model()     -- "Claude Sonnet 4"
+  require("pi.status").thinking()  -- "high"
+  require("pi.status").state()     -- "streaming"|"idle"|"disconnected"
+  require("pi.status").cost()      -- "$0.0500"
 
-pi.toggle()                                                  *pi.toggle()*
-  Toggle the Pi terminal panel open/closed.
+  -- Complete string
+  require("pi.status").statusline()
+  -- → "Pi: Claude Sonnet 4 [high] ● streaming"
 
-pi.ask({text}, {opts})                                          *pi.ask()*
-  Open an input prompt. Resolves context placeholders in the input,
-  then sends to Pi.
-  Parameters:
-    {text}  (string|nil)  Pre-filled input text
-    {opts}  (table|nil)   Options:
-      - submit (boolean): Skip input dialog, send immediately
-      - context (Context): Pre-captured context object
+  -- Boolean check
+  require("pi.status").is_connected()  -- true/false
+<
 
-pi.prompt({text}, {opts})                                    *pi.prompt()*
-  Send a prompt directly (no input dialog). If {text} matches a named
-  prompt key in config, expands it.
-  Parameters:
-    {text}  (string)      Prompt text or named prompt key
-    {opts}  (table|nil)   Options:
-      - context (Context): Pre-captured context object
-
-pi.select()                                                  *pi.select()*
-  Open a picker showing all configured prompts and control actions.
-
-pi.abort()                                                    *pi.abort()*
-  Send abort signal (Escape) to Pi.
-
-pi.operator({prefix}, {opts})                              *pi.operator()*
-  Create an operator function for dot-repeat support.
-  Returns "g@" for use in expression mappings.
-  Parameters:
-    {prefix}  (string)    Text to prepend to the prompt
-    {opts}    (table|nil) Options:
-      - submit (boolean): Send immediately after motion
+Lualine integration: >lua
+  require("lualine").setup({
+    sections = {
+      lualine_x = { require("pi.status").lualine },
+    },
+  })
+<
 
 ==============================================================================
-11. HEALTH CHECK                                               *pi-health*
+10. LUA API                                                      *pi-api*
+
+require("pi").setup({opts})           Configure and initialize
+require("pi").toggle()                Toggle the pi panel
+require("pi").ask([text], [{opts}])   Open input dialog
+require("pi").prompt({text}, [{opts}]) Send prompt directly
+require("pi").select()                Open action picker
+require("pi").abort()                 Abort current operation
+require("pi").pick_model()            Open model picker
+require("pi").cycle_model()           Cycle to next model
+require("pi").cycle_thinking()        Cycle thinking level
+require("pi").new_session()           Start new session
+require("pi").session_stats()         Show session statistics
+require("pi").export_html()           Export session to HTML
+require("pi").send_context()          Send code context reference
+require("pi").operator({prefix})      Operator function for dot-repeat
+
+Low-level modules:
+  require("pi.rpc")         RPC subprocess management
+  require("pi.events")      Event dispatcher and state tracking
+  require("pi.chat")        Chat buffer rendering
+  require("pi.stream")      Streaming text handler
+  require("pi.status")      Statusline integration
+  require("pi.context")     Context capture and placeholders
+  require("pi.extension_ui") Extension UI request handling
+  require("pi.terminal")    Terminal mode (legacy)
+
+==============================================================================
+11. HEALTH CHECK                                              *pi-health*
 
 Run `:checkhealth pi` to verify:
-
-  - Neovim version >= 0.10
-  - Pi CLI is installed and in PATH
-  - snacks.nvim availability (optional)
-  - Configuration status
+  - Neovim version (>= 0.10)
+  - pi CLI installation and version
+  - snacks.nvim availability
+  - setup() status
+  - Current mode (rpc/terminal)
+  - RPC process status and model info
 
 ==============================================================================
- vim:tw=78:ts=8:ft=help:norl:
+vim:tw=78:ft=help:norl:
