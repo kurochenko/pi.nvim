@@ -73,11 +73,12 @@ local function ensure_buffer()
   vim.bo[M.buf].swapfile = false
   vim.bo[M.buf].modifiable = false
 
-  -- Use a custom filetype to avoid triggering render-markdown.nvim and
-  -- treesitter markdown parser, which causes SIGKILL in interactive mode
-  -- with certain plugin configurations (render-markdown.nvim + treesitter
-  -- markdown_inline injection = infinite loop on scratch buffers).
-  vim.bo[M.buf].filetype = "pi_chat"
+  -- Use real markdown filetype for treesitter highlighting and
+  -- render-markdown.nvim support. Previous SIGKILL crashes were caused by
+  -- invalid code signatures on treesitter parser .so files, not by the
+  -- filetype itself. If render-markdown is not desired, users can add our
+  -- buffer to their ignore config.
+  vim.bo[M.buf].filetype = "markdown"
 
   vim.api.nvim_buf_set_name(M.buf, "pi://chat")
 
