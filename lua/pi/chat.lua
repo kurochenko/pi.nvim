@@ -87,6 +87,18 @@ local function ensure_buffer()
     M.close()
   end, { buffer = M.buf, silent = true, desc = "Close Pi chat" })
 
+  -- Open input prompt when user tries to type in the chat buffer
+  local function open_input()
+    require("pi").ask()
+  end
+  vim.keymap.set("n", "i", open_input, { buffer = M.buf, silent = true, desc = "Pi: Type message" })
+  vim.keymap.set("n", "a", open_input, { buffer = M.buf, silent = true, desc = "Pi: Type message" })
+  vim.keymap.set("n", "A", open_input, { buffer = M.buf, silent = true, desc = "Pi: Type message" })
+  vim.keymap.set("n", "I", open_input, { buffer = M.buf, silent = true, desc = "Pi: Type message" })
+  vim.keymap.set("n", "o", open_input, { buffer = M.buf, silent = true, desc = "Pi: Type message" })
+  vim.keymap.set("n", "O", open_input, { buffer = M.buf, silent = true, desc = "Pi: Type message" })
+  vim.keymap.set("n", "<CR>", open_input, { buffer = M.buf, silent = true, desc = "Pi: Type message" })
+
   -- Track scroll position to disable auto-scroll when user scrolls up
   local group = vim.api.nvim_create_augroup("PiChatScroll", { clear = true })
   vim.api.nvim_create_autocmd("CursorMoved", {
