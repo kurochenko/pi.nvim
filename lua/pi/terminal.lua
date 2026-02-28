@@ -130,7 +130,17 @@ local function open_manual(cmd, enter)
   M.buf = vim.api.nvim_get_current_buf()
 
   vim.bo[M.buf].filetype = "pi_terminal"
+
+  -- Minimize rendering overhead for the terminal window
   vim.wo[M.win].winbar = ""
+  vim.wo[M.win].number = false
+  vim.wo[M.win].relativenumber = false
+  vim.wo[M.win].signcolumn = "no"
+  vim.wo[M.win].foldcolumn = "0"
+  vim.wo[M.win].spell = false
+
+  -- Limit terminal scrollback to reduce memory/rendering cost
+  vim.bo[M.buf].scrollback = 5000
 
   setup_autocmds(M.buf)
 
@@ -163,7 +173,14 @@ local function reopen_split(enter)
 
   M.win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(M.win, M.buf)
+
+  -- Minimize rendering overhead for the terminal window
   vim.wo[M.win].winbar = ""
+  vim.wo[M.win].number = false
+  vim.wo[M.win].relativenumber = false
+  vim.wo[M.win].signcolumn = "no"
+  vim.wo[M.win].foldcolumn = "0"
+  vim.wo[M.win].spell = false
 
   if not enter then
     vim.api.nvim_set_current_win(source_win)
